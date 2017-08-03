@@ -27,6 +27,7 @@ import net.corda.core.utilities.Try
 import net.corda.core.utilities.debug
 import net.corda.core.utilities.loggerFor
 import net.corda.core.utilities.trace
+import net.corda.node.internal.InitiatedFlowFactory
 import net.corda.node.services.api.Checkpoint
 import net.corda.node.services.api.CheckpointStorage
 import net.corda.node.services.api.ServiceHubInternal
@@ -341,10 +342,10 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
 
         fun sendSessionReject(message: String) = sendSessionMessage(sender, SessionReject(otherPartySessionId, message))
 
-        val session = try {
+        val (session, flowVersion) = try {
             val initiatedFlowFactory = serviceHub.getFlowFactory(sessionInit.loadInitiatingFlowClass())
                     ?: throw SessionRejectException("${sessionInit.initiatingFlowClass} is not registered")
-            val flow = initiatedFlowFactory.createFlow(receivedMessage.platformVersion, sender, sessionInit)
+            val flow = initiatedFlowFactory.createFlow(receivedMessage.platformVersion, sender)
             val fiber = createFiber(flow, FlowInitiator.Peer(sender))
             val session = FlowSession(flow, random63BitValue(), sender, FlowSessionState.Initiated(sender, otherPartySessionId))
             if (sessionInit.firstPayload != null) {
@@ -353,7 +354,11 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
             openSessions[session.ourSessionId] = session
             fiber.openSessions[Pair(flow, sender)] = session
             updateCheckpoint(fiber)
-            session
+            val flowVersion = when (initiatedFlowFactory) {
+                is InitiatedFlowFactory.Core -> receivedMessage.platformVersion  // The flow version for the core flows is the platform version
+                is InitiatedFlowFactory.CorDapp -> initiatedFlowFactory.flowVersion
+            }
+            session to flowVersion
         } catch (e: SessionRejectException) {
             logger.warn("${e.logMessage}: $sessionInit")
             sendSessionReject(e.rejectMessage)
@@ -364,7 +369,7 @@ class StateMachineManager(val serviceHub: ServiceHubInternal,
             return
         }
 
-        sendSessionMessage(sender, SessionConfirm(otherPartySessionId, session.ourSessionId), session.fiber)
+        sendSessionMessage(sender, SessionConfirm(otherPartySessionId, session.ourSessionId, flowVersion, "not defined"), session.fiber)
         session.fiber.logger.debug { "Initiated by $sender using ${sessionInit.initiatingFlowClass}" }
         session.fiber.logger.trace { "Initiated from $sessionInit on $session" }
         resumeFiber(session.fiber)
