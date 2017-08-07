@@ -5,6 +5,7 @@ import net.corda.core.crypto.DigitalSignature
 import net.corda.core.crypto.SecureHash
 import net.corda.core.crypto.testing.NullPublicKey
 import net.corda.core.node.services.VaultService
+import net.corda.core.schemas.MappedSchema
 import net.corda.core.toFuture
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.WireTransaction
@@ -12,7 +13,6 @@ import net.corda.node.services.database.HibernateConfiguration
 import net.corda.node.services.schema.HibernateObserver
 import net.corda.node.services.schema.NodeSchemaService
 import net.corda.node.services.transactions.PersistentUniquenessProvider
-import net.corda.node.services.persistence.DBTransactionStorage.TransactionSchemaV1
 import net.corda.node.services.vault.NodeVaultService
 import net.corda.node.services.vault.VaultSchemaV1
 import net.corda.node.utilities.CordaPersistence
@@ -47,7 +47,11 @@ class DBTransactionStorageTests : TestDependencyInjectionBase() {
     fun setUp() {
         LogHelper.setLevel(PersistentUniquenessProvider::class)
         val dataSourceProps = makeTestDataSourceProperties()
-        val customSchemas = setOf(VaultSchemaV1, CashSchemaV1, SampleCashSchemaV2, SampleCashSchemaV3, TransactionSchemaV1)
+
+        val transactionSchema = MappedSchema(schemaFamily = javaClass, version = 1,
+                mappedTypes = listOf(DBTransactionStorage.DBTransaction::class.java))
+
+        val customSchemas = setOf(VaultSchemaV1, CashSchemaV1, SampleCashSchemaV2, SampleCashSchemaV3, transactionSchema)
 
         database = configureDatabase(dataSourceProps, makeTestDatabaseProperties(), customSchemas)
 
